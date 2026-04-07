@@ -27,7 +27,12 @@ def fetch_ohlcv(ticker: str, start: str, end: str) -> pd.DataFrame:
     if df.empty:
         raise ValueError(f"데이터 없음: {ticker} ({start}~{end})")
     df.index = pd.to_datetime(df.index)
-    df.columns = ["open", "high", "low", "close", "volume", "trade_value", "change_pct"]
+    # pykrx 버전에 따라 컬럼 수가 다름 (6 또는 7개)
+    col_map = {
+        6: ["open", "high", "low", "close", "volume", "change_pct"],
+        7: ["open", "high", "low", "close", "volume", "trade_value", "change_pct"],
+    }
+    df.columns = col_map.get(len(df.columns), df.columns)
     return df[["open", "high", "low", "close", "volume"]]
 
 
