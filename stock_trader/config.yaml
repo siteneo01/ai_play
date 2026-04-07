@@ -1,0 +1,31 @@
+# 백테스트 설정
+backtest:
+  initial_capital: 10_000_000   # 초기 자본 (1000만원)
+  commission: 0.00015            # 수수료 0.015%
+  slippage: 0.001                # 슬리피지 0.1%
+
+# 기본 전략 설정
+strategy:
+  name: "ma_crossover"           # ma_crossover | rsi
+  params:
+    # MA Crossover
+    short_window: 5
+    long_window: 20
+    # RSI
+    period: 14
+    oversold: 30
+    overbought: 70
+
+# 종목 및 기간
+universe:
+  tickers:
+    - "005930"   # 삼성전자
+    - "000660"   # SK하이닉스
+    - "035420"   # NAVER
+  start_date: "20230101"
+  end_date: "20241231"
+
+# 키움 실거래 설정 (Windows 전용)
+kiwoom:
+  account_no: ""         # 계좌번호
+  is_simulation: true    # 모의투자 여부
