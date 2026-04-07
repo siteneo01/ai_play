@@ -8,7 +8,9 @@ import sys
 import math
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+# 로컬 및 클라우드 모두 동작하도록 경로 설정
+_root = Path(__file__).parent
+sys.path.insert(0, str(_root))
 
 import streamlit as st
 import pandas as pd
