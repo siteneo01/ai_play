@@ -30,7 +30,7 @@ st.set_page_config(
 
 st.title("📈 주식 자동매매 시스템")
 
-tab_backtest, tab_live = st.tabs(["📊 백테스트", "🔴 모의/실전 투자"])
+tab_backtest, tab_live, tab_bot = st.tabs(["📊 백테스트", "🔴 모의/실전 투자", "🤖 봇 모니터링"])
 
 # ════════════════════════════════════════════════════════════════
 #  탭 1 : 백테스트
@@ -343,3 +343,156 @@ with tab_live:
     else:
         st.info("API 키를 입력하고 **🔌 연결** 버튼을 클릭하세요.\n\n"
                 "**API 키 발급:** https://apiportal.koreainvestment.com → 앱 등록 → 모의투자 선택")
+
+
+# ════════════════════════════════════════════════════════════════
+#  탭 3 : 봇 모니터링 (Railway 서버 연결)
+# ════════════════════════════════════════════════════════════════
+with tab_bot:
+    import requests as _req
+
+    st.subheader("🤖 Railway 봇 서버 모니터링")
+    st.caption("Railway에 배포된 자동매매 봇의 상태를 실시간으로 확인하고 제어합니다.")
+
+    with st.expander("🔌 서버 연결 설정", expanded=True):
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            bot_url = st.text_input("Railway 서버 URL", placeholder="https://xxxx.up.railway.app")
+        with bc2:
+            bot_token = st.text_input("Bot Token", type="password", placeholder="BOT_TOKEN 환경변수 값")
+
+    def _bot_headers():
+        return {"Authorization": f"Bearer {bot_token}"}
+
+    def _bot_get(path):
+        return _req.get(f"{bot_url}{path}", headers=_bot_headers(), timeout=10).json()
+
+    def _bot_post(path, data=None):
+        return _req.post(f"{bot_url}{path}", headers=_bot_headers(), json=data or {}, timeout=10).json()
+
+    if bot_url and bot_token:
+        # 상태 조회
+        col_refresh, col_start, col_stop = st.columns([2, 1, 1])
+        with col_refresh:
+            refresh = st.button("🔄 상태 새로고침", use_container_width=True)
+
+        if refresh or "bot_status" not in st.session_state:
+            try:
+                st.session_state["bot_status"] = _bot_get("/status")
+            except Exception as e:
+                st.error(f"서버 연결 실패: {e}")
+                st.stop()
+
+        status_data = st.session_state.get("bot_status", {})
+        bot_info = status_data.get("bot", {})
+        balance = status_data.get("balance", {})
+
+        # 봇 상태
+        is_running = bot_info.get("running", False)
+        st.subheader("📡 봇 상태")
+        s1, s2, s3, s4 = st.columns(4)
+        s1.metric("상태", "🟢 실행 중" if is_running else "⭕ 중단됨")
+        s2.metric("마지막 신호", bot_info.get("last_signal", "-"))
+        s3.metric("마지막 확인", bot_info.get("last_checked", "-"))
+        s4.metric("오류", bot_info.get("error", "없음") or "없음")
+
+        # 봇 제어
+        st.subheader("🎮 봇 제어")
+        ctrl1, ctrl2 = st.columns(2)
+        with ctrl1:
+            with st.form("start_form"):
+                st.markdown("**봇 시작 설정**")
+                f1, f2 = st.columns(2)
+                with f1:
+                    s_ticker = st.text_input("종목코드", value="005930")
+                    s_strategy = st.selectbox("전략", ["ma_crossover", "rsi"])
+                    s_amount = st.number_input("1회 투자금 (원)", value=1_000_000, step=100_000)
+                with f2:
+                    s_interval = st.selectbox("주기", ["60", "300", "600", "1800"],
+                                              format_func=lambda x: {"60":"1분","300":"5분","600":"10분","1800":"30분"}[x])
+                    if s_strategy == "ma_crossover":
+                        s_short = st.number_input("단기 MA", value=5)
+                        s_long = st.number_input("장기 MA", value=20)
+                        s_params = {"short_window": int(s_short), "long_window": int(s_long)}
+                    else:
+                        s_period = st.number_input("RSI 기간", value=14)
+                        s_params = {"period": int(s_period), "oversold": 30, "overbought": 70}
+
+                if st.form_submit_button("🚀 봇 시작", type="primary", use_container_width=True):
+                    try:
+                        res = _bot_post("/start", {
+                            "ticker": s_ticker,
+                            "strategy_name": s_strategy,
+                            "strategy_params": s_params,
+                            "invest_amount": s_amount,
+                            "interval_sec": int(s_interval),
+                        })
+                        st.success(res.get("message", "시작됨"))
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"시작 실패: {e}")
+
+        with ctrl2:
+            st.markdown("**봇 중단**")
+            if st.button("⏹ 봇 중단", type="secondary", use_container_width=True, disabled=not is_running):
+                try:
+                    res = _bot_post("/stop")
+                    st.success(res.get("message", "중단 요청됨"))
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"중단 실패: {e}")
+
+            # 현재 설정 표시
+            if bot_info.get("config"):
+                cfg = bot_info["config"]
+                st.markdown("**현재 봇 설정**")
+                st.json(cfg)
+
+        # 계좌 현황
+        if balance and "error" not in balance:
+            st.subheader("💼 계좌 현황")
+            b1, b2, b3 = st.columns(3)
+            b1.metric("예수금", f"{balance.get('cash', 0):,.0f}원")
+            b2.metric("총 평가금액", f"{balance.get('total_eval', 0):,.0f}원")
+            b3.metric("평가손익", f"{balance.get('pnl', 0):+,.0f}원")
+
+            if balance.get("positions"):
+                st.subheader("📦 보유 종목")
+                df_pos = pd.DataFrame(balance["positions"])
+                df_pos.columns = ["종목코드", "종목명", "수량", "평균단가", "현재가", "손익(원)", "수익률(%)"]
+                def hl_pos(row):
+                    c = "#2d4a2d" if row["손익(원)"] >= 0 else "#4a2d2d"
+                    return [f"background-color:{c}"] * len(row)
+                st.dataframe(df_pos.style.apply(hl_pos, axis=1), use_container_width=True, hide_index=True)
+
+        # 실시간 로그
+        st.subheader("📋 봇 로그")
+        logs = bot_info.get("logs", [])
+        if logs:
+            st.code("\n".join(reversed(logs[-30:])))
+        else:
+            st.caption("로그 없음")
+
+        st.caption("⚡ 자동 새로고침하려면 위의 🔄 버튼을 클릭하세요.")
+    else:
+        st.info(
+            "Railway 서버 URL과 Bot Token을 입력하세요.\n\n"
+            "**Railway 배포 방법은 아래를 참고하세요.**"
+        )
+        st.markdown("""
+        ### Railway 배포 순서
+        1. **https://railway.app** 접속 → GitHub 로그인
+        2. **New Project** → **Deploy from GitHub repo** → `siteneo01/ai_play` 선택
+        3. **Root Directory** → `stock_trader` 설정
+        4. **Variables** 탭에서 환경변수 추가:
+
+        | 변수명 | 값 |
+        |---|---|
+        | `APP_KEY` | KIS App Key |
+        | `APP_SECRET` | KIS App Secret |
+        | `ACCOUNT_NO` | 계좌번호 |
+        | `IS_MOCK` | `1` (모의투자) |
+        | `BOT_TOKEN` | 임의 비밀 문자열 (예: `my-secret-token`) |
+
+        5. 배포 완료 후 생성된 URL을 위 입력창에 입력
+        """)
